@@ -6,6 +6,8 @@
 #define KEY_LENGTH 256
 
 // Pointers to the functions
+HMODULE (WINAPI *pLoadLibraryA)(LPCSTR);
+FARPROC (WINAPI *pGetProcAddress)(HMODULE, LPCSTR);
 HANDLE (WINAPI *pCreateFileA)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
 BOOL (WINAPI *pReadFile)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
 BOOL (WINAPI *pWriteFile)(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED);
@@ -63,54 +65,48 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    HMODULE hKernel32 = LoadLibrary("kernel32.dll");
+    char loadLibraryFuncName[] = "YbnqYvoenelN";
+    rot13_decode(loadLibraryFuncName);
+    pLoadLibraryA = (HMODULE (WINAPI *)(LPCSTR))GetProcAddress(GetModuleHandle("kernel32.dll"), loadLibraryFuncName);
+
+    char getProcAddressFuncName[] = "TrgCebsbezNqqerff";
+    rot13_decode(getProcAddressFuncName);
+    pGetProcAddress = (FARPROC (WINAPI *)(HMODULE, LPCSTR))GetProcAddress(GetModuleHandle("kernel32.dll"), getProcAddressFuncName);
+
+    HMODULE hKernel32 = pLoadLibraryA("kernel32.dll");
     if (!hKernel32) {
-        fprintf(stderr, "Failed to load kernel32.dll: %lu\n", GetLastError());
+        fprintf(stderr, "Failed to load kernel32.dll\n");
         return 1;
     }
 
-    // Decode ROT13 function names and resolve the function addresses
     char createFileFuncName[] = "PernxSvyrN";
     rot13_decode(createFileFuncName);
-    pCreateFileA = (HANDLE (WINAPI *)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE))GetProcAddress(hKernel32, createFileFuncName);
+    pCreateFileA = (HANDLE (WINAPI *)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE))pGetProcAddress(hKernel32, createFileFuncName);
 
     char readFileFuncName[] = "ErnqSvyr";
     rot13_decode(readFileFuncName);
-    pReadFile = (BOOL (WINAPI *)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED))GetProcAddress(hKernel32, readFileFuncName);
+    pReadFile = (BOOL (WINAPI *)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED))pGetProcAddress(hKernel32, readFileFuncName);
 
     char writeFileFuncName[] = "JevgrSvyr";
     rot13_decode(writeFileFuncName);
-    pWriteFile = (BOOL (WINAPI *)(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED))GetProcAddress(hKernel32, writeFileFuncName);
+    pWriteFile = (BOOL (WINAPI *)(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED))pGetProcAddress(hKernel32, writeFileFuncName);
 
     char closeHandleFuncName[] = "PybfrUnaqyr";
     rot13_decode(closeHandleFuncName);
-    pCloseHandle = (BOOL (WINAPI *)(HANDLE))GetProcAddress(hKernel32, closeHandleFuncName);
+    pCloseHandle = (BOOL (WINAPI *)(HANDLE))pGetProcAddress(hKernel32, closeHandleFuncName);
 
-    const char *mode = argv[1];
-    const char *input_filename = argv[2];
-    const char *output_filename = argv[3];
-    const char *key = argv[4];
+    HANDLE hInputFile = pCreateFileA(argv[2], GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    HANDLE hOutputFile = pCreateFileA(argv[3], GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 
-    HANDLE input_file = pCreateFileA(input_filename, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (input_file == INVALID_HANDLE_VALUE) {
-        fprintf(stderr, "Error opening input file: %lu\n", GetLastError());
-        FreeLibrary(hKernel32);
+    if (hInputFile == INVALID_HANDLE_VALUE || hOutputFile == INVALID_HANDLE_VALUE) {
+        fprintf(stderr, "Failed to open input or output file.\n");
         return 1;
     }
 
-    HANDLE output_file = pCreateFileA(output_filename, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (output_file == INVALID_HANDLE_VALUE) {
-        fprintf(stderr, "Error opening output file: %lu\n", GetLastError());
-        pCloseHandle(input_file);
-        FreeLibrary(hKernel32);
-        return 1;
-    }
+    rc4_process_file(hInputFile, hOutputFile, (uint8_t *)argv[4], strlen(argv[4]));
 
-    rc4_process_file(input_file, output_file, (uint8_t *)key, strlen(key));
-
-    pCloseHandle(input_file);
-    pCloseHandle(output_file);
-    FreeLibrary(hKernel32);
+    pCloseHandle(hInputFile);
+    pCloseHandle(hOutputFile);
 
     return 0;
 }
