@@ -12,6 +12,7 @@ HANDLE (WINAPI *pCreateFileA)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD
 BOOL (WINAPI *pReadFile)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
 BOOL (WINAPI *pWriteFile)(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED);
 BOOL (WINAPI *pCloseHandle)(HANDLE);
+HMODULE (WINAPI *pGetModuleHandleA)(LPCSTR);
 
 void swap(uint8_t *a, uint8_t *b) {
     uint8_t tmp = *a;
@@ -65,35 +66,33 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    char loadLibraryFuncName[] = "YbnqYvoenelN";
-    rot13_decode(loadLibraryFuncName);
-    pLoadLibraryA = (HMODULE (WINAPI *)(LPCSTR))GetProcAddress(GetModuleHandle("kernel32.dll"), loadLibraryFuncName);
+    char getModuleHandleFuncName[] = "TrgZbqhzngrUnaqyrN";
+    rot13_decode(getModuleHandleFuncName);
+    pGetModuleHandleA = (HMODULE (WINAPI *)(LPCSTR))GetProcAddress(GetModuleHandleA("kernel32.dll"), getModuleHandleFuncName);
 
     char getProcAddressFuncName[] = "TrgCebsbezNqqerff";
     rot13_decode(getProcAddressFuncName);
-    pGetProcAddress = (FARPROC (WINAPI *)(HMODULE, LPCSTR))GetProcAddress(GetModuleHandle("kernel32.dll"), getProcAddressFuncName);
+    pGetProcAddress = (FARPROC (WINAPI *)(HMODULE, LPCSTR))pGetModuleHandleA("kernel32.dll");
 
-    HMODULE hKernel32 = pLoadLibraryA("kernel32.dll");
-    if (!hKernel32) {
-        fprintf(stderr, "Failed to load kernel32.dll\n");
-        return 1;
-    }
+    char loadLibraryFuncName[] = "YbnqYvoenelN";
+    rot13_decode(loadLibraryFuncName);
+    pLoadLibraryA = (HMODULE (WINAPI *)(LPCSTR))pGetProcAddress(pGetModuleHandleA("kernel32.dll"), loadLibraryFuncName);
 
     char createFileFuncName[] = "PernxSvyrN";
     rot13_decode(createFileFuncName);
-    pCreateFileA = (HANDLE (WINAPI *)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE))pGetProcAddress(hKernel32, createFileFuncName);
+    pCreateFileA = (HANDLE (WINAPI *)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE))pGetProcAddress(pGetModuleHandleA("kernel32.dll"), createFileFuncName);
 
     char readFileFuncName[] = "ErnqSvyr";
     rot13_decode(readFileFuncName);
-    pReadFile = (BOOL (WINAPI *)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED))pGetProcAddress(hKernel32, readFileFuncName);
+    pReadFile = (BOOL (WINAPI *)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED))pGetProcAddress(pGetModuleHandleA("kernel32.dll"), readFileFuncName);
 
     char writeFileFuncName[] = "JevgrSvyr";
     rot13_decode(writeFileFuncName);
-    pWriteFile = (BOOL (WINAPI *)(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED))pGetProcAddress(hKernel32, writeFileFuncName);
+    pWriteFile = (BOOL (WINAPI *)(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED))pGetProcAddress(pGetModuleHandleA("kernel32.dll"), writeFileFuncName);
 
     char closeHandleFuncName[] = "PybfrUnaqyr";
     rot13_decode(closeHandleFuncName);
-    pCloseHandle = (BOOL (WINAPI *)(HANDLE))pGetProcAddress(hKernel32, closeHandleFuncName);
+    pCloseHandle = (BOOL (WINAPI *)(HANDLE))pGetProcAddress(pGetModuleHandleA("kernel32.dll"), closeHandleFuncName);
 
     HANDLE hInputFile = pCreateFileA(argv[2], GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     HANDLE hOutputFile = pCreateFileA(argv[3], GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
