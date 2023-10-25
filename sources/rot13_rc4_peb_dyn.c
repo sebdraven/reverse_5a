@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <windows.h>
+#include <SubAuth.h>
 
 #define KEY_LENGTH 256
 
@@ -10,7 +11,7 @@ typedef struct _PEB_LDR_DATA {
     BYTE Reserved1[8];
     PVOID Reserved2[3];
     LIST_ENTRY InMemoryOrderModuleList;
-} PEB_LDR_DATA, *PPEB_LDR_DATA;
+} PEB_LDR_DATA, * PPEB_LDR_DATA;
 
 typedef struct _LDR_MODULE {
     PVOID Reserved1[2];
@@ -18,9 +19,9 @@ typedef struct _LDR_MODULE {
     PVOID BaseAddress;
     PVOID EntryPoint;
     ULONG SizeOfImage;
-    char* FullDllName;
-    char* BaseDllName;
-} LDR_MODULE, *PLDR_MODULE;
+    UNICODE_STRING FullDllName;
+    UNICODE_STRING BaseDllName;
+} LDR_MODULE, * PLDR_MODULE;
 
 typedef struct _PEB {
     BYTE Reserved1[2];
@@ -28,20 +29,63 @@ typedef struct _PEB {
     BYTE Reserved2[1];
     PVOID Reserved3[2];
     PPEB_LDR_DATA Ldr;
-} PEB, *PPEB;
+} PEB, * PPEB;
 
-FARPROC GetProcAddressFromPEB(HMODULE hModule, const char* funcName) {
+typedef struct _LDR_DATA_TABLE_ENTRY {
+    LIST_ENTRY InLoadOrderLinks;
+    LIST_ENTRY InMemoryOrderModuleList;
+    LIST_ENTRY InInitializationOrderModuleList;
+    PVOID DllBase;
+    PVOID EntryPoint;
+    ULONG SizeOfImage;
+    UNICODE_STRING FullDllName;
+    UNICODE_STRING BaseDllName;
+    ULONG Flags;
+    USHORT LoadCount;
+    USHORT TlsIndex;
+    union {
+        LIST_ENTRY HashLinks;
+        struct
+        {
+            PVOID SectionPointer;
+            ULONG CheckSum;
+        };
+    };
+    union {
+        ULONG TimeDateStamp;
+        PVOID LoadedImports;
+    };
+    PVOID EntryPointActivationContext;
+    PVOID PatchInformation;
+} LDR_DATA_TABLE_ENTRY, * PLDR_DATA_TABLE_ENTRY;
+
+HMODULE(WINAPI* pLoadLibraryA)(LPCSTR);
+FARPROC(WINAPI* pGetProcAddress)(HMODULE, LPCSTR);
+HANDLE(WINAPI* pCreateFileA)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
+BOOL(WINAPI* pReadFile)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
+BOOL(WINAPI* pWriteFile)(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED);
+BOOL(WINAPI* pCloseHandle)(HANDLE);
+HMODULE(WINAPI* pGetModuleHandleA)(LPCSTR);
+
+FARPROC GetProcAddressFromPEB(const char* funcName) {
+    
     PPEB peb = (PPEB)__readfsdword(0x30); // Obtenir le PEB du processus en cours
-    PLDR_MODULE ldrModule = (PLDR_MODULE)peb->Ldr->InMemoryOrderModuleList.Flink;
+    PPEB_LDR_DATA pLdrData = peb->Ldr;
+    PLIST_ENTRY pHeadEntry = &pLdrData->InMemoryOrderModuleList;
+    PLIST_ENTRY pEntry = pHeadEntry->Flink;
     HMODULE kernel32Base = NULL;
 
-    while (ldrModule->BaseAddress) {
-        if (strstr(ldrModule->BaseDllName, "kernel32.dll"))
- {
-            kernel32Base = (HMODULE)ldrModule->BaseAddress;
-            break;
-        }
-        ldrModule = (PLDR_MODULE)ldrModule->InMemoryOrderModuleList.Flink;
+    pEntry = pHeadEntry->Flink;
+    while (pEntry != pHeadEntry)
+    {
+        PLDR_MODULE ldrModule = (PLDR_MODULE)pEntry->Flink;
+        
+        if (wcsstr(ldrModule->BaseDllName.Buffer, L"KERNEL32.DLL"))
+            {
+                kernel32Base = (HMODULE)ldrModule->BaseAddress;
+                break;
+            }
+        pEntry = pEntry->Flink;
     }
 
     if (!kernel32Base) return NULL;
@@ -64,23 +108,24 @@ FARPROC GetProcAddressFromPEB(HMODULE hModule, const char* funcName) {
 }
 
 // Fonctions RC4 et ROT13
-void swap(uint8_t *a, uint8_t *b) {
+void swap(uint8_t* a, uint8_t* b) {
     uint8_t tmp = *a;
     *a = *b;
     *b = tmp;
 }
 
-void rot13_decode(char *str) {
+void rot13_decode(char* str) {
     for (int i = 0; str[i]; i++) {
         if (str[i] >= 'a' && str[i] <= 'z') {
             str[i] = 'a' + (str[i] - 'a' + 13) % 26;
-        } else if (str[i] >= 'A' && str[i] <= 'Z') {
+        }
+        else if (str[i] >= 'A' && str[i] <= 'Z') {
             str[i] = 'A' + (str[i] - 'A' + 13) % 26;
         }
     }
 }
 
-void initialize_sbox(uint8_t s[KEY_LENGTH], const uint8_t *key, int key_length) {
+void initialize_sbox(uint8_t s[KEY_LENGTH], const uint8_t* key, int key_length) {
     int j = 0;
     for (int i = 0; i < KEY_LENGTH; i++) {
         s[i] = i;
@@ -92,7 +137,9 @@ void initialize_sbox(uint8_t s[KEY_LENGTH], const uint8_t *key, int key_length) 
     }
 }
 
-void rc4_process_file(HANDLE input, HANDLE output, const uint8_t *key, int key_length) {
+
+
+void rc4_process_file(HANDLE input, HANDLE output, const uint8_t* key, int key_length) {
     uint8_t s[KEY_LENGTH];
     initialize_sbox(s, key, key_length);
 
@@ -101,8 +148,14 @@ void rc4_process_file(HANDLE input, HANDLE output, const uint8_t *key, int key_l
     DWORD bytesRead, bytesWritten;
 
     // Utilisez les pointeurs de fonction pour appeler les fonctions d'API Windows
-    BOOL (WINAPI *pReadFile)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED) = GetProcAddressFromPEB(GetModuleHandleA("kernel32.dll"), "ReadFile");
-    BOOL (WINAPI *pWriteFile)(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED) = GetProcAddressFromPEB(GetModuleHandleA("kernel32.dll"), "WriteFile");
+    char readfile[] = "ErnqSvyr";
+    rot13_decode(readfile);
+    
+    pReadFile = (BOOL(WINAPI *)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED)) GetProcAddressFromPEB(readfile);
+
+    char writefile[] = "JevgrSvyr";
+    rot13_decode(writefile);
+    pWriteFile = (BOOL(WINAPI *)(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED))GetProcAddressFromPEB(writefile);
 
     while (pReadFile(input, &in_byte, 1, &bytesRead, NULL) && bytesRead > 0) {
         i = (i + 1) % KEY_LENGTH;
@@ -114,21 +167,24 @@ void rc4_process_file(HANDLE input, HANDLE output, const uint8_t *key, int key_l
     }
 }
 
-int main(int argc, char *argv[]) {
-   if (argc != 5) {
-        printf("Usage: %s -e/-d <input_file> <output_file> <key>\n", argv[0]);
+int main(int argc, char* argv[]) {
+    if (argc != 4) {
+        printf("Usage: %s <input_file> <output_file> <key>\n", argv[0]);
         return 1;
     }
 
-    char funcName1[] = "YbnqYvoenelA";  // "LoadLibraryA" after rot13 decode
-    char funcName2[] = "TrgZhgubyngureNcc"; // "GetModuleHandleA" after rot13 decode
+    char funcName1[] = "YbnqYvoenelN";  // "LoadLibraryA" after rot13 decode
+    char funcName2[] = "TrgZbqhyrUnaqyrN"; // "GetModuleHandleA" after rot13 decode
     rot13_decode(funcName1);
     rot13_decode(funcName2);
+    char funcName3[] = "PerngrSvyrN";
+    rot13_decode(funcName3);
+    char funcName4[] = "PybfrUnaqyr";
+    rot13_decode(funcName4);
 
-    HMODULE hKernel32 = GetModuleHandleA("kernel32.dll");
-    HMODULE (WINAPI *pLoadLibraryA)(const char *) = (HMODULE (WINAPI *)(const char *))GetProcAddressFromPEB(hKernel32, funcName1);
-    HANDLE (WINAPI *pCreateFileA)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE) = (HANDLE (WINAPI *)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE))GetProcAddressFromPEB(pLoadLibraryA("kernel32.dll"), "CreateFileA");
-    HANDLE (WINAPI *pCloseHandle)(HANDLE) = (HANDLE (WINAPI *)(HANDLE))GetProcAddressFromPEB(pLoadLibraryA("kernel32.dll"), "CloseHandle");
+    HMODULE(WINAPI * pLoadLibraryA)(const char*) = (HMODULE(WINAPI*)(const char*))GetProcAddressFromPEB(funcName1);
+    HANDLE(WINAPI * pCreateFileA)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE) = (HANDLE(WINAPI*)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE))GetProcAddressFromPEB(funcName3);
+    HANDLE(WINAPI * pCloseHandle)(HANDLE) = (HANDLE(WINAPI*)(HANDLE))GetProcAddressFromPEB(funcName4);
 
     HANDLE hInputFile = pCreateFileA(argv[1], GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (hInputFile == INVALID_HANDLE_VALUE) {
@@ -143,7 +199,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    rc4_process_file(hInputFile, hOutputFile, (uint8_t *)argv[4], strlen(argv[4]));
+    rc4_process_file(hInputFile, hOutputFile, (uint8_t*)argv[3], strlen(argv[3]));
 
     pCloseHandle(hInputFile);
     pCloseHandle(hOutputFile);

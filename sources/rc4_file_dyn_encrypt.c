@@ -48,7 +48,7 @@ void rc4_process_file(HANDLE input, HANDLE output, const uint8_t *key, int key_l
 }
 
 int main(int argc, char *argv[]) {
-    if (argc != 5) {
+    if (argc != 4) {
         printf("Usage: %s -e/-d <input_file> <output_file> <key>\n", argv[0]);
         return 1;
     }
@@ -71,10 +71,10 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    const char *mode = argv[1];
-    const char *input_filename = argv[2];
-    const char *output_filename = argv[3];
-    const char *key = argv[4];
+    
+    const char *input_filename = argv[1];
+    const char *output_filename = argv[2];
+    const char *key = argv[3];
 
     HANDLE input_file = pCreateFileA(input_filename, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (input_file == INVALID_HANDLE_VALUE) {
